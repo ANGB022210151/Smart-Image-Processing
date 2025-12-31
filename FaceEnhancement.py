@@ -214,7 +214,7 @@ def apply_histogram_equalization(image):
 if __name__ == "__main__":
     try:
         # 1. Load & Prop
-        original = load_and_prep("girlsWithSomeNoise.png")
+        original = load_and_prep("public/girlsWithSomeNoise.png")
         print("Image loaded and upscaled.")
         
         # 2. Skin Masking
@@ -247,8 +247,8 @@ if __name__ == "__main__":
         print("Global tone (Contrast Stretching + CLAHE) applied.")
         
         # Save
-        cv2.imwrite("enhanced_face.jpg", final_output)
-        print("Saved 'enhanced_face.jpg'")
+        cv2.imwrite("public/enhanced_face.jpg", final_output)
+        print("Saved 'public/enhanced_face.jpg'")
         
         # Plot
         plt.figure(figsize=(12, 6))
