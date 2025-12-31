@@ -222,6 +222,241 @@ class App:
         self.preview.pack(fill="both", expand=True, padx=10, pady=10)
         self.photo_image: Optional[tk.PhotoImage] = None
 
+    # ------------------ Enhancement runners ------------------
+    def _load_image_rgb(self, path: str) -> np.ndarray:
+        if cv2 is None:
+            raise RuntimeError("OpenCV is required to run pipelines. Install opencv-python.")
+        bgr = cv2.imread(path, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise FileNotFoundError(f"Cannot load image: {path}")
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+    def _rgb_to_photoimage(self, img_rgb: np.ndarray, max_size=(720, 420)) -> tk.PhotoImage:
+        if Image is None or ImageTk is None:
+            raise RuntimeError("Pillow is required to preview results. Install pillow.")
+        im = Image.fromarray(img_rgb)
+        im.thumbnail(max_size)
+        return ImageTk.PhotoImage(im)
+
+    def _show_pair_window(self, original_rgb: np.ndarray, enhanced_rgb: np.ndarray, title: str) -> None:
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        try:
+            # Maximize window (Windows)
+            win.state('zoomed')
+        except Exception:
+            pass
+
+        # Main container
+        main = tk.Frame(win)
+        main.pack(fill="both", expand=True)
+        main.rowconfigure(0, weight=1)
+        main.columnconfigure(0, weight=1, uniform="fig")
+        main.columnconfigure(1, weight=1, uniform="fig")
+
+        # Left panel (Figure 1: Original)
+        left_panel = tk.Frame(main, bd=2, relief="groove")
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        left_panel.rowconfigure(0, weight=0)
+        left_panel.rowconfigure(1, weight=1)
+        left_panel.rowconfigure(2, weight=0)
+        left_panel.columnconfigure(0, weight=1)
+        tk.Label(left_panel, text="Figure 1: Original", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, pady=(0, 6))
+
+        # Canvas with scrollbars for left image
+        left_canvas = tk.Canvas(left_panel, bg="#202020", highlightthickness=0)
+        left_canvas.grid(row=1, column=0, sticky="nsew")
+        left_img_id = [None]
+
+        left_controls = tk.Frame(left_panel)
+        left_controls.grid(row=2, column=0, sticky="ew", pady=6)
+        left_zoom_var = tk.DoubleVar(value=1.0)
+        left_zoom_label = tk.Label(left_controls, text="Zoom: 1.00x")
+        left_zoom_label.pack(side="left", padx=8)
+
+        def apply_left_zoom() -> None:
+            if Image is None or ImageTk is None:
+                return
+            try:
+                z = max(0.1, min(4.0, float(left_zoom_var.get())))
+            except Exception:
+                z = 1.0
+            pil = Image.fromarray(original_rgb)
+            w, h = pil.size
+            pil_z = pil.resize((max(1, int(w * z)), max(1, int(h * z))), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_z)
+            left_canvas.image = photo
+            cw = left_canvas.winfo_width()
+            ch = left_canvas.winfo_height()
+            if left_img_id[0] is not None:
+                left_canvas.delete(left_img_id[0])
+            left_img_id[0] = left_canvas.create_image(cw // 2, ch // 2, anchor="center", image=photo)
+            left_zoom_label.config(text=f"Zoom: {z:.2f}x")
+
+        tk.Button(left_controls, text="-", width=3, command=lambda: (left_zoom_var.set(max(0.1, left_zoom_var.get() - 0.1)), apply_left_zoom())).pack(side="left")
+        tk.Button(left_controls, text="+", width=3, command=lambda: (left_zoom_var.set(min(4.0, left_zoom_var.get() + 0.1)), apply_left_zoom())).pack(side="left", padx=4)
+        ttk.Scale(left_controls, from_=0.1, to=4.0, orient="horizontal", variable=left_zoom_var, command=lambda e: apply_left_zoom()).pack(side="left", fill="x", expand=True, padx=8)
+
+        def on_left_wheel(event) -> None:
+            delta = event.delta or 0
+            step = 0.1 if delta > 0 else -0.1
+            left_zoom_var.set(max(0.1, min(4.0, left_zoom_var.get() + step)))
+            apply_left_zoom()
+
+        left_canvas.bind("<MouseWheel>", on_left_wheel)
+        left_canvas.bind("<Configure>", lambda e: apply_left_zoom())
+
+        # Right panel (Figure 2: Enhanced)
+        right_panel = tk.Frame(main, bd=2, relief="groove")
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        right_panel.rowconfigure(0, weight=0)
+        right_panel.rowconfigure(1, weight=1)
+        right_panel.rowconfigure(2, weight=0)
+        right_panel.columnconfigure(0, weight=1)
+        tk.Label(right_panel, text="Figure 2: Enhanced", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, pady=(0, 6))
+
+        # Canvas with scrollbars for right image
+        right_canvas = tk.Canvas(right_panel, bg="#202020", highlightthickness=0)
+        right_canvas.grid(row=1, column=0, sticky="nsew")
+        right_img_id = [None]
+
+        right_controls = tk.Frame(right_panel)
+        right_controls.grid(row=2, column=0, sticky="ew", pady=6)
+        right_zoom_var = tk.DoubleVar(value=1.0)
+        right_zoom_label = tk.Label(right_controls, text="Zoom: 1.00x")
+        right_zoom_label.pack(side="left", padx=8)
+
+        def apply_right_zoom() -> None:
+            if Image is None or ImageTk is None:
+                return
+            try:
+                z = max(0.1, min(4.0, float(right_zoom_var.get())))
+            except Exception:
+                z = 1.0
+            pil = Image.fromarray(enhanced_rgb)
+            w, h = pil.size
+            pil_z = pil.resize((max(1, int(w * z)), max(1, int(h * z))), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_z)
+            right_canvas.image = photo
+            cw = right_canvas.winfo_width()
+            ch = right_canvas.winfo_height()
+            if right_img_id[0] is not None:
+                right_canvas.delete(right_img_id[0])
+            right_img_id[0] = right_canvas.create_image(cw // 2, ch // 2, anchor="center", image=photo)
+            right_zoom_label.config(text=f"Zoom: {z:.2f}x")
+
+        tk.Button(right_controls, text="-", width=3, command=lambda: (right_zoom_var.set(max(0.1, right_zoom_var.get() - 0.1)), apply_right_zoom())).pack(side="left")
+        tk.Button(right_controls, text="+", width=3, command=lambda: (right_zoom_var.set(min(4.0, right_zoom_var.get() + 0.1)), apply_right_zoom())).pack(side="left", padx=4)
+        ttk.Scale(right_controls, from_=0.1, to=4.0, orient="horizontal", variable=right_zoom_var, command=lambda e: apply_right_zoom()).pack(side="left", fill="x", expand=True, padx=8)
+
+        def on_right_wheel(event) -> None:
+            delta = event.delta or 0
+            step = 0.1 if delta > 0 else -0.1
+            right_zoom_var.set(max(0.1, min(4.0, right_zoom_var.get() + step)))
+            apply_right_zoom()
+
+        right_canvas.bind("<MouseWheel>", on_right_wheel)
+        right_canvas.bind("<Configure>", lambda e: apply_right_zoom())
+
+        # Caption
+        cap = tk.Label(win, text="Figure 1 (Original) — Figure 2 (Enhanced)")
+        cap.pack(pady=(0, 6))
+
+        # Initial render
+        win.update_idletasks()
+        apply_left_zoom()
+        apply_right_zoom()
+
+    # Nightscape: median (3x3) + CLAHE on LAB L
+    def _run_night_enhance(self, path: str) -> np.ndarray:
+        rgb = self._load_image_rgb(path)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        den = cv2.medianBlur(bgr, 3)
+        lab = cv2.cvtColor(den, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l2 = clahe.apply(l)
+        lab2 = cv2.merge([l2, a, b])
+        bgr2 = cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
+        return cv2.cvtColor(bgr2, cv2.COLOR_BGR2RGB)
+
+    # Document: 4-step morph sequence (import from morph_seq if available)
+    def _run_document_enhance(self, path: str) -> np.ndarray:
+        try:
+            from morph_seq import process_morph_seq
+            res = process_morph_seq(path, out_dir="outputs", save_intermediate=True)
+            binary = res.get("step4_closed")
+            if binary is None:
+                raise RuntimeError("Document pipeline returned no binary result")
+            # Convert to RGB for display
+            if binary.ndim == 2:
+                rgb_bin = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+            else:
+                rgb_bin = binary
+            return rgb_bin
+        except Exception:
+            # Fallback: do erosion -> Otsu -> closing inline
+            rgb = self._load_image_rgb(path)
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            eroded = cv2.erode(gray, kernel, iterations=1)
+            _, binary = cv2.threshold(eroded, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+            return cv2.cvtColor(closed, cv2.COLOR_GRAY2RGB)
+
+    # Landscape: bilateral denoise + CLAHE with sky protection + unsharp mask
+    def _run_landscape_enhance(self, path: str) -> np.ndarray:
+        rgb = self._load_image_rgb(path)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        den = cv2.bilateralFilter(bgr, d=9, sigmaColor=100, sigmaSpace=75)
+        lab = cv2.cvtColor(den, cv2.COLOR_BGR2LAB)
+        l_orig, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        l_clahe = clahe.apply(l_orig)
+        l_norm = l_orig.astype(np.float32) / 255.0
+        sky_power = 2.0
+        blend_strength = 0.55
+        protection_mask = np.power(l_norm, sky_power)
+        enhance_weight = (1.0 - protection_mask) * blend_strength
+        l_final = (l_clahe.astype(np.float32) * enhance_weight + l_orig.astype(np.float32) * (1.0 - enhance_weight)).astype(np.uint8)
+        lab_enh = cv2.merge([l_final, a, b])
+        bgr_enh = cv2.cvtColor(lab_enh, cv2.COLOR_LAB2BGR)
+        # Unsharp
+        radius = 1.0
+        amount = 0.8
+        blurred = cv2.GaussianBlur(bgr_enh, (0, 0), radius)
+        sharp = cv2.addWeighted(bgr_enh, 1.0 + amount, blurred, -amount, 0)
+        return cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
+
+    # Face: reuse FaceEnhancement functions if available; fallback to simple pipeline
+    def _run_face_enhance(self, path: str) -> np.ndarray:
+        try:
+            import FaceEnhancement as FE
+            original = FE.load_and_prep(path)
+            skin_mask = FE.get_refined_skin_mask(original)
+            skin_enhanced = FE.apply_glamour_skin(original, skin_mask)
+            sharpened = FE.enhance_details(skin_enhanced, amount=2.0)
+            features_popped = FE.pixel_pop_eyes(sharpened)
+            color_corrected = FE.adjust_saturation(features_popped, saturation=1.0)
+            stretched = FE.apply_contrast_stretching(color_corrected)
+            final_output = FE.apply_histogram_equalization(stretched)
+            return cv2.cvtColor(final_output, cv2.COLOR_BGR2RGB)
+        except Exception:
+            # Fallback: bilateral on face regions not guaranteed, so apply globally but conservatively
+            rgb = self._load_image_rgb(path)
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            smooth = cv2.bilateralFilter(bgr, d=-1, sigmaColor=50, sigmaSpace=20)
+            lab = cv2.cvtColor(smooth, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+            l2 = clahe.apply(l)
+            lab2 = cv2.merge([l2, a, b])
+            bgr2 = cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
+            # mild unsharp
+            blurred = cv2.GaussianBlur(bgr2, (0, 0), 1.5)
+            sharp = cv2.addWeighted(bgr2, 1.5, blurred, -0.5, 0)
+            return cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
+
     def ensure_model(self) -> None:
         if self.ai is not None:
             return
@@ -282,7 +517,23 @@ class App:
         if not self.image_path:
             messagebox.showinfo("Info", "Please upload an image first.")
             return
-        messagebox.showinfo("Confirmed", f"Image: {os.path.basename(self.image_path)}\nType: {sel}")
+        try:
+            orig_rgb = self._load_image_rgb(self.image_path)
+            if sel == "face":
+                enh_rgb = self._run_face_enhance(self.image_path)
+            elif sel == "document":
+                enh_rgb = self._run_document_enhance(self.image_path)
+            elif sel == "nightscape":
+                enh_rgb = self._run_night_enhance(self.image_path)
+            elif sel == "landscape":
+                enh_rgb = self._run_landscape_enhance(self.image_path)
+            else:
+                raise ValueError(f"Unknown type: {sel}")
+        except Exception as e:
+            messagebox.showerror("Pipeline Error", f"Failed to run {sel} pipeline:\n{e}")
+            return
+
+        self._show_pair_window(orig_rgb, enh_rgb, title=f"{sel.capitalize()} Enhancement Result")
         print(f"CONFIRMED: path={self.image_path} type={sel}")
 
 
